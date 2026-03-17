@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Intellexa AI Multi-Agent RAG</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <div>
+          <h1>Multi-Agent RAG (Fast Demo)</h1>
+          <p class="subtle">
+            Upload a document, then ask questions grounded in retrieved chunks.
+          </p>
+        </div>
+        <div class="pill" id="healthPill">Checking…</div>
+      </header>
+
+      <section class="card">
+        <h2>1) Upload Document</h2>
+        <div class="row">
+          <input id="pdf" type="file" accept=".pdf,.docx,.json,.txt,.md,application/pdf,application/json" />
+          <button id="uploadBtn">Upload & Index</button>
+        </div>
+        <div class="subtle" id="uploadStatus"></div>
+      </section>
+
+      <section class="card">
+        <h2>2) Ask</h2>
+        <div class="row">
+          <input id="query" type="text" placeholder="Ask something about the uploaded document…" />
+          <button id="askBtn">Ask</button>
+        </div>
+        <div class="row">
+          <label class="subtle">Top K</label>
+          <input id="topK" type="number" min="1" max="10" value="3" class="topk" />
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Result</h2>
+        <div class="flow" id="flow">[Planner] → [Retriever] → [Analyzer] → [Validator] → [Responder]</div>
+        <div class="metrics">
+          <div class="metric">
+            <div class="label">Confidence</div>
+            <div class="value" id="confidence">—</div>
+          </div>
+          <div class="metric">
+            <div class="label">Warning</div>
+            <div class="value warn" id="warning">—</div>
+          </div>
+        </div>
+        <pre class="answer" id="answer">Upload a document to begin.</pre>
+      </section>
+
+      <section class="grid">
+        <section class="card">
+          <h2>Retrieved Chunks</h2>
+          <div class="subtle">These are the exact chunks sent to the Analyzer Agent.</div>
+          <div id="chunks" class="stack"></div>
+        </section>
+        <section class="card">
+          <h2>Sources</h2>
+          <div class="subtle">Chunk metadata used for attribution.</div>
+          <pre class="json" id="sources">[]</pre>
+        </section>
+      </section>
+
+      <section class="card">
+        <h2>Agent Trace</h2>
+        <div class="subtle">Quick visibility into each agent’s output.</div>
+        <pre class="json" id="trace">[]</pre>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
