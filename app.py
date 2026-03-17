@@ -19,6 +19,14 @@ from agents.retriever import retriever_agent
 from agents.validator import validator_agent
 from rag.loader import load_and_chunk_file
 from rag.vector_store import add_documents, load_vector_store
+from utils.supabase_client import (
+    get_supabase_config,
+    save_chat_turn,
+    save_upload_metadata,
+    upload_file_to_storage,
+    upsert_user,
+    verify_bearer_token,
+)
 from utils.serialize import doc_to_dict
 from utils.settings import FAISS_DIR, TOP_K
 
@@ -117,11 +125,21 @@ def index():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "has_index": os.path.isdir(FAISS_DIR)}
+    sb = get_supabase_config()
+    return {"ok": True, "has_index": os.path.isdir(FAISS_DIR), "supabase_enabled": sb.enabled}
+
+
+@app.get("/public-config")
+def public_config():
+    # Safe to expose (anon key is public by design).
+    return {
+        "supabase_url": os.getenv("SUPABASE_URL"),
+        "supabase_anon_key": os.getenv("SUPABASE_ANON_KEY"),
+    }
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(request: Request, file: UploadFile = File(...)):
     global db
 
     if not file.filename:
@@ -135,10 +153,38 @@ async def upload(file: UploadFile = File(...)):
             detail=f"Unsupported file type: {ext}. Allowed: {', '.join(sorted(allowed))}",
         )
 
+    decoded = None
+    uid = None
+    try:
+        decoded = verify_bearer_token(request.headers.get("authorization"))
+        if decoded:
+            uid = decoded.get("uid")
+            upsert_user(decoded)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    upload_id = ""
+    storage_info: Dict[str, Any] = {"enabled": False, "bucket": None, "path": None}
+    supabase_errors: Dict[str, Any] = {}
+
     with tempfile.TemporaryDirectory() as tmpdir:
         file_path = os.path.join(tmpdir, file.filename)
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
+
+        # Store raw file in Supabase Storage (if enabled)
+        try:
+            with open(file_path, "rb") as rf:
+                storage_info = upload_file_to_storage(
+                    file_bytes=rf.read(),
+                    uid=uid,
+                    original_filename=file.filename,
+                    content_type=file.content_type or "application/octet-stream",
+                )
+        except Exception as e:
+            # Storage is optional; ingestion can still work without it.
+            storage_info = {"enabled": False, "bucket": None, "path": None}
+            supabase_errors["storage_error"] = str(e)
 
         try:
             chunks = load_and_chunk_file(file_path)
@@ -153,11 +199,48 @@ async def upload(file: UploadFile = File(...)):
         except RuntimeError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-    return {"ok": True, "chunks_added": len(chunks), "filetype": ext}
+    # Save metadata in Supabase Postgres (if enabled)
+    try:
+        upload_id = save_upload_metadata(
+            uid=uid,
+            original_filename=file.filename,
+            filetype=ext,
+            chunks_added=len(chunks),
+            storage_path=storage_info.get("path"),
+            storage_bucket=storage_info.get("bucket"),
+        )
+    except Exception as e:
+        upload_id = ""
+        supabase_errors["db_error"] = str(e)
+
+    return {
+        "ok": True,
+        "chunks_added": len(chunks),
+        "filetype": ext,
+        "upload_id": upload_id,
+        "storage": storage_info,
+        "supabase": {"ok": not bool(supabase_errors), **supabase_errors},
+    }
 
 
 @app.post("/ask", response_model=AskResponse)
-def ask(payload: AskRequest):
+def ask(request: Request, payload: AskRequest):
+    decoded = None
+    uid = None
+    try:
+        decoded = verify_bearer_token(request.headers.get("authorization"))
+        if decoded:
+            uid = decoded.get("uid")
+            upsert_user(decoded)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
     result = run_pipeline(payload.query, top_k=payload.top_k)
+    try:
+        save_chat_turn(uid=uid, query=payload.query, response=result)
+    except Exception as e:
+        # Don't fail the user-facing answer path if logging fails.
+        # The global exception handler will still return JSON if this unexpectedly raises.
+        _ = str(e)
     return result
 

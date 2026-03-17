@@ -33,6 +33,17 @@ const LS = {
   profile: "intellexa_profile_v1",
 };
 
+async function getSupabaseClient() {
+  const lib = window.supabase;
+  if (!lib?.createClient) throw new Error("Supabase JS library not loaded.");
+  const res = await fetch("/public-config");
+  const cfg = await res.json();
+  if (!cfg?.supabase_url || !cfg?.supabase_anon_key) {
+    throw new Error("Supabase is not configured (missing SUPABASE_URL or SUPABASE_ANON_KEY).");
+  }
+  return lib.createClient(cfg.supabase_url, cfg.supabase_anon_key);
+}
+
 function loadUsers() {
   try {
     const raw = localStorage.getItem(LS.users);
@@ -104,24 +115,36 @@ async function handleLogin(e) {
   if (!isValidEmail(email)) return showToastBox($("loginError"), "Enter a valid email.");
   if (String(password).length < 4) return showToastBox($("loginError"), "Password must be at least 4 characters.");
 
-  const users = loadUsers();
-  const found = users.find((u) => u.email?.toLowerCase?.() === email.toLowerCase());
-  if (found && found.password !== password) return showToastBox($("loginError"), "Incorrect password.");
-
-  const remember = Boolean($("rememberMe")?.checked);
-  const user = found || { id: `u_${Date.now()}`, name: "Alex Sterling", role: "Senior Analyst", email, password };
-  if (!found) {
-    users.unshift(user);
-    saveUsers(users);
-  }
-
   setLoading($("loginSubmit"), $("loginSpinner"), $("loginSubmitText"), true, "Sign in");
   showToastBox($("loginError"), "");
-  await fakeDelay(650);
+  try {
+    const sb = await getSupabaseClient();
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
 
-  saveSession({ ok: true, userId: user.id, email: user.email, ts: Date.now(), remember });
-  setProfileFromUser(user);
-  window.location.href = "/";
+    const session = data?.session;
+    const user = data?.user;
+    if (!session?.access_token || !user?.id) throw new Error("No session returned.");
+
+    const remember = Boolean($("rememberMe")?.checked);
+    saveSession({
+      ok: true,
+      provider: "supabase",
+      userId: user.id,
+      email: user.email,
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      ts: Date.now(),
+      remember,
+    });
+
+    setProfileFromUser({ name: user.user_metadata?.full_name, role: "Member", email: user.email, password: "" });
+    window.location.href = "/";
+  } catch (err) {
+    showToastBox($("loginError"), err?.message || "Sign in failed.");
+  } finally {
+    setLoading($("loginSubmit"), $("loginSpinner"), $("loginSubmitText"), false, "Sign in");
+  }
 }
 
 async function handleRegister(e) {
@@ -134,20 +157,42 @@ async function handleRegister(e) {
   if (!isValidEmail(email)) return showToastBox($("regError"), "Enter a valid email.");
   if (String(password).length < 4) return showToastBox($("regError"), "Password must be at least 4 characters.");
 
-  const users = loadUsers();
-  const exists = users.some((u) => u.email?.toLowerCase?.() === email.toLowerCase());
-  if (exists) return showToastBox($("regError"), "An account with this email already exists. Try signing in.");
-
   setLoading($("regSubmit"), $("regSpinner"), $("regSubmitText"), true, "Create account");
   showToastBox($("regError"), "");
-  await fakeDelay(750);
+  try {
+    const sb = await getSupabaseClient();
+    const { data, error } = await sb.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name } },
+    });
+    if (error) throw error;
 
-  const user = { id: `u_${Date.now()}`, name, role: "Senior Analyst", email, password };
-  users.unshift(user);
-  saveUsers(users);
-  saveSession({ ok: true, userId: user.id, email: user.email, ts: Date.now(), remember: true });
-  setProfileFromUser(user);
-  window.location.href = "/";
+    // Depending on project settings, signUp may require email confirmation.
+    // If session exists, we treat user as signed in. Otherwise show a message.
+    const session = data?.session;
+    const user = data?.user;
+    if (session?.access_token && user?.id) {
+      saveSession({
+        ok: true,
+        provider: "supabase",
+        userId: user.id,
+        email: user.email,
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        ts: Date.now(),
+        remember: true,
+      });
+      setProfileFromUser({ name, role: "Member", email, password: "" });
+      window.location.href = "/";
+    } else {
+      showToastBox($("regError"), "Account created. Check your email to confirm, then sign in.");
+    }
+  } catch (err) {
+    showToastBox($("regError"), err?.message || "Registration failed.");
+  } finally {
+    setLoading($("regSubmit"), $("regSpinner"), $("regSubmitText"), false, "Create account");
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -166,4 +211,3 @@ window.addEventListener("DOMContentLoaded", () => {
     showToastBox($("loginError"), "Demo app: password reset isn’t enabled.");
   });
 });
-

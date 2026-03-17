@@ -21,6 +21,18 @@ const STORAGE_KEY = "intellexa_docs_v1";
 const PROFILE_KEY = "intellexa_profile_v1";
 const AUTH_KEY = "intellexa_auth_v1";
 
+function getAccessToken() {
+  const raw = localStorage.getItem(AUTH_KEY);
+  const s = parseJsonSafely(raw) || {};
+  return s?.access_token || "";
+}
+
+function authHeaders() {
+  const token = getAccessToken();
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
 function isSignedIn() {
   const raw = localStorage.getItem(AUTH_KEY);
   const s = parseJsonSafely(raw) || {};
@@ -604,7 +616,7 @@ async function uploadFileFromPicker(file, { statusElId, closeOnSuccess } = {}) {
 
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch("/upload", { method: "POST", body: form });
+    const res = await fetch("/upload", { method: "POST", headers: authHeaders(), body: form });
     const raw = await res.text();
     const data = parseJsonSafely(raw) || { detail: raw };
     if (!res.ok) throw new Error(data.detail || "Upload failed");
@@ -672,7 +684,7 @@ async function ask() {
     const topK = Number($("topK")?.value || 3);
     const res = await fetch("/ask", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ query, top_k: topK }),
     });
     const raw = await res.text();
@@ -867,4 +879,3 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   await refreshHealth();
 });
-

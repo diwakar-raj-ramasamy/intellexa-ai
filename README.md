@@ -112,3 +112,62 @@ Open:
 - **WSL / pip issues**
   - This project uses `--break-system-packages` because some WSL images ship Python as an externally-managed environment (PEP 668).
 
+---
+
+### Supabase (optional backend integration)
+If you enable Supabase, the backend will:
+- verify `Authorization: Bearer <token>` (optional; requests can stay anonymous)
+- upload raw files to **Supabase Storage**
+- store metadata + chat history in **Supabase Postgres**
+
+#### Env
+Set in `.env`:
+
+```env
+SUPABASE_ENABLED=true
+SUPABASE_URL=YOUR_SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+SUPABASE_STORAGE_BUCKET=uploads
+
+# Optional (recommended): allows local JWT verification
+SUPABASE_JWT_SECRET=YOUR_JWT_SECRET
+```
+
+#### SQL schema (run once in Supabase SQL editor)
+```sql
+create table if not exists public.users (
+  id text primary key,
+  email text,
+  last_seen_at timestamptz
+);
+
+create table if not exists public.uploads (
+  id uuid primary key,
+  uid text,
+  original_filename text,
+  filetype text,
+  chunks_added int,
+  storage_bucket text,
+  storage_path text,
+  created_at timestamptz
+);
+
+create table if not exists public.chats (
+  id uuid primary key,
+  uid text,
+  upload_id uuid,
+  query text,
+  answer text,
+  confidence int,
+  warning text,
+  sources jsonb,
+  agent_trace jsonb,
+  created_at timestamptz
+);
+```
+
+#### Storage bucket
+Create a **Storage bucket** named `uploads` in Supabase:
+- Supabase Dashboard → **Storage** → **Create bucket** → name: `uploads`
+- Or set `SUPABASE_STORAGE_BUCKET` in `.env` to an existing bucket name.
+

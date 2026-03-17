@@ -22,6 +22,9 @@ env/
 .env.*
 !.env.example
 
+# Supabase local dev
+.supabase/
+
 # Data / indices / uploads
 data/
 *.faiss
