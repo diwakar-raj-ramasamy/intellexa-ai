@@ -18,6 +18,7 @@ const KEYS = {
   auth: "intellexa_auth_v1",
   compact: "intellexa_compact_mode_v1",
   topk: "intellexa_default_topk_v1",
+  theme: "intellexa_theme_v1",
   docs: "intellexa_docs_v1",
   convos: "intellexa_ai_conversations_v1",
   activeConvo: "intellexa_ai_active_conversation_v1",
@@ -72,6 +73,43 @@ function toast(msg) {
   safeText($("statusToast"), msg);
   if (!msg) return;
   window.setTimeout(() => safeText($("statusToast"), ""), 2400);
+}
+
+function systemPrefersDark() {
+  return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+}
+
+function getThemeChoice() {
+  return localStorage.getItem(KEYS.theme) || "system";
+}
+
+function applyTheme(choice) {
+  const c = choice || "system";
+  const isDark = c === "dark" || (c === "system" && systemPrefersDark());
+  document.documentElement.classList.toggle("dark", isDark);
+}
+
+function setThemeChoice(choice) {
+  localStorage.setItem(KEYS.theme, choice);
+  applyTheme(choice);
+  updateThemeButtons();
+}
+
+function updateThemeButtons() {
+  const choice = getThemeChoice();
+  const map = {
+    light: $("themeLight"),
+    dark: $("themeDark"),
+    system: $("themeSystem"),
+  };
+  Object.entries(map).forEach(([k, btn]) => {
+    if (!btn) return;
+    const active = k === choice;
+    btn.classList.toggle("bg-white", active);
+    btn.classList.toggle("text-slate-900", active);
+    btn.classList.toggle("shadow-sm", active);
+    btn.classList.toggle("text-slate-600", !active);
+  });
 }
 
 function setHealth(ok, hasIndex) {
@@ -129,6 +167,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
+  applyTheme(getThemeChoice());
+  updateThemeButtons();
+  const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+  mq?.addEventListener?.("change", () => {
+    if (getThemeChoice() === "system") applyTheme("system");
+  });
+
   const profile = loadProfile();
   applyProfileToUI(profile);
 
@@ -158,6 +203,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     toast("Saved.");
   });
 
+  $("themeLight")?.addEventListener("click", () => setThemeChoice("light"));
+  $("themeDark")?.addEventListener("click", () => setThemeChoice("dark"));
+  $("themeSystem")?.addEventListener("click", () => setThemeChoice("system"));
+
   $("profilePasswordToggle")?.addEventListener("click", () => {
     const input = $("profilePasswordInput");
     const btn = $("profilePasswordToggle");
@@ -177,10 +226,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   $("resetLocalBtn")?.addEventListener("click", () => {
-    wipeLocalData([KEYS.profile, KEYS.compact, KEYS.topk, KEYS.timeRange]);
+    wipeLocalData([KEYS.profile, KEYS.compact, KEYS.topk, KEYS.timeRange, KEYS.theme]);
     applyProfileToUI(loadProfile());
     setCompactUI(false);
     if ($("defaultTopK")) $("defaultTopK").value = "3";
+    setThemeChoice("system");
     toast("Local settings cleared.");
   });
 
@@ -190,12 +240,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       KEYS.compact,
       KEYS.topk,
       KEYS.timeRange,
+      KEYS.theme,
       KEYS.docs,
       KEYS.convos,
       KEYS.activeConvo,
     ]);
     applyProfileToUI(loadProfile());
     setCompactUI(false);
+    setThemeChoice("system");
     toast("All local data wiped.");
   });
 

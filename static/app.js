@@ -20,6 +20,188 @@ function nowIso() {
 const STORAGE_KEY = "intellexa_docs_v1";
 const PROFILE_KEY = "intellexa_profile_v1";
 const AUTH_KEY = "intellexa_auth_v1";
+const THEME_KEY = "intellexa_theme_v1";
+const NOTIF_KEY = "intellexa_notifications_v1";
+const TOPK_KEY = "intellexa_default_topk_v1";
+let lastAppliedTopK = null;
+
+function loadDefaultTopK() {
+  const n = Number(localStorage.getItem(TOPK_KEY) || 3);
+  if (!Number.isFinite(n)) return 3;
+  return Math.min(10, Math.max(1, Math.round(n)));
+}
+
+function applyDefaultTopK(force = false) {
+  const el = $("topK");
+  if (!el) return;
+  // Don't overwrite while user is editing.
+  if (!force && document.activeElement === el) return;
+
+  const desired = loadDefaultTopK();
+  const current = Number(el.value || 0);
+  const currentOk = Number.isFinite(current) && current >= 1 && current <= 10;
+
+  // Update if empty/invalid OR it matches what we last applied (meaning user didn't override it).
+  if (!currentOk || current === lastAppliedTopK || force) {
+    el.value = String(desired);
+    lastAppliedTopK = desired;
+  }
+}
+
+function loadNotifications() {
+  const raw = localStorage.getItem(NOTIF_KEY);
+  const list = parseJsonSafely(raw);
+  return Array.isArray(list) ? list : [];
+}
+
+function saveNotifications(list) {
+  localStorage.setItem(NOTIF_KEY, JSON.stringify(list));
+}
+
+function addNotification({ type, title, message }) {
+  const list = loadNotifications();
+  list.unshift({
+    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    ts: Date.now(),
+    type: type || "info", // info | success | warning | error | progress
+    title: title || "Notification",
+    message: message || "",
+    read: false,
+  });
+  saveNotifications(list.slice(0, 50));
+  renderNotificationsUI();
+}
+
+function markAllNotificationsRead() {
+  const list = loadNotifications().map((n) => ({ ...n, read: true }));
+  saveNotifications(list);
+  renderNotificationsUI();
+}
+
+function deleteNotificationById(id) {
+  if (!id) return;
+  const next = loadNotifications().filter((n) => n.id !== id);
+  saveNotifications(next);
+  renderNotificationsUI();
+}
+
+function timeAgo(ts) {
+  const s = Math.max(0, Math.floor((Date.now() - Number(ts || 0)) / 1000));
+  if (s < 10) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function renderNotificationsUI() {
+  const listEl = $("notificationsList");
+  const dot = $("notificationsDot");
+  if (!listEl || !dot) return;
+
+  const list = loadNotifications();
+  // Only show "completed" notifications in the dropdown (not progress spam)
+  const completed = list.filter((n) => n.type !== "progress");
+  const unread = completed.some((n) => !n.read);
+  dot.classList.toggle("hidden", !unread);
+
+  if (!completed.length) {
+    listEl.innerHTML = `
+      <div class="p-4 text-sm text-slate-600 dark:text-slate-400">
+        No notifications yet.
+      </div>
+    `;
+    return;
+  }
+
+  const iconFor = (t) => {
+    if (t === "success") return "ph-check-circle";
+    if (t === "error") return "ph-x-circle";
+    if (t === "warning") return "ph-warning-circle";
+    if (t === "progress") return "ph-spinner-gap";
+    return "ph-info";
+  };
+  const colorFor = (t) => {
+    if (t === "success") return "text-emerald-600";
+    if (t === "error") return "text-rose-600";
+    if (t === "warning") return "text-amber-600";
+    if (t === "progress") return "text-brand-600";
+    return "text-slate-600";
+  };
+
+  listEl.innerHTML = completed
+    .slice(0, 5)
+    .map((n) => {
+      const unreadClass = n.read ? "" : "bg-brand-50/40 dark:bg-slate-800/40";
+      const title = escapeHtml(n.title || "");
+      const msg = escapeHtml(n.message || "");
+      return `
+        <div class="border-b border-slate-100 px-4 py-3 dark:border-slate-800 ${unreadClass}" data-notif-id="${escapeHtml(
+          n.id
+        )}">
+          <div class="flex items-start gap-3">
+            <div class="mt-0.5 ${colorFor(n.type)}">
+              <i class="ph ${iconFor(n.type)} text-lg ${n.type === "progress" ? "animate-spin" : ""}"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-2">
+                <div class="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">${title}</div>
+                <div class="flex items-center gap-2">
+                  <div class="shrink-0 text-xs text-slate-500 dark:text-slate-400">${timeAgo(n.ts)}</div>
+                  <button
+                    type="button"
+                    class="inline-flex h-8 w-8 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    aria-label="Delete notification"
+                    title="Delete"
+                    data-action="delete-notification"
+                    data-id="${escapeHtml(n.id)}"
+                  >
+                    <i class="ph ph-trash text-base"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="mt-1 text-sm text-slate-600 dark:text-slate-400">${msg}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function openNotificationsMenu() {
+  const menu = $("notificationsMenu");
+  if (!menu) return;
+  menu.classList.remove("hidden");
+  renderNotificationsUI();
+}
+
+function closeNotificationsMenu() {
+  const menu = $("notificationsMenu");
+  if (!menu) return;
+  menu.classList.add("hidden");
+}
+
+function toggleNotificationsMenu() {
+  const menu = $("notificationsMenu");
+  if (!menu) return;
+  const open = !menu.classList.contains("hidden");
+  if (open) closeNotificationsMenu();
+  else openNotificationsMenu();
+}
+
+function applyThemeFromStorage() {
+  try {
+    const c = localStorage.getItem(THEME_KEY) || "system";
+    const dark =
+      c === "dark" ||
+      (c === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.classList.toggle("dark", dark);
+  } catch {}
+}
 
 function getAccessToken() {
   const raw = localStorage.getItem(AUTH_KEY);
@@ -255,8 +437,8 @@ function renderDocsTable(activeTab) {
           <i class="ph ${fileIcon} text-lg"></i>
         </div>
         <div class="min-w-0">
-          <div class="truncate font-semibold text-slate-900">${escapeHtml(doc.name || "Untitled")}</div>
-          <div class="mt-0.5 text-xs text-slate-500">ID: ${escapeHtml(doc.short_id || "—")}</div>
+          <div class="truncate font-semibold text-slate-900 dark:text-slate-100">${escapeHtml(doc.name || "Untitled")}</div>
+          <div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">ID: ${escapeHtml(doc.short_id || "—")}</div>
         </div>
       </div>
     `;
@@ -290,16 +472,16 @@ function renderDocsTable(activeTab) {
     const sizeTd = document.createElement("td");
     sizeTd.className = "py-4 pr-6";
     sizeTd.innerHTML = `
-      <div class="text-sm font-semibold text-slate-900">${escapeHtml(formatBytes(doc.size_bytes))}</div>
-      <div class="mt-0.5 text-xs text-slate-500">${escapeHtml(doc.mime || prettyType(doc.type))}</div>
+      <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">${escapeHtml(formatBytes(doc.size_bytes))}</div>
+      <div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">${escapeHtml(doc.mime || prettyType(doc.type))}</div>
     `;
 
     const dateTd = document.createElement("td");
     dateTd.className = "py-4 pr-6";
     const dt = formatDateTwoLine(doc.created_at);
     dateTd.innerHTML = `
-      <div class="text-sm font-semibold text-slate-900">${escapeHtml(dt.date)}</div>
-      <div class="mt-0.5 text-xs text-slate-500">${escapeHtml(dt.time)}</div>
+      <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">${escapeHtml(dt.date)}</div>
+      <div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">${escapeHtml(dt.time)}</div>
     `;
 
     const actionsTd = document.createElement("td");
@@ -344,22 +526,22 @@ function ensureGlobalFilterMenu() {
   const m = document.createElement("div");
   m.id = "globalFilterMenu";
   m.className =
-    "fixed z-[80] hidden w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg";
+    "fixed z-[80] hidden w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900";
   m.innerHTML = `
-    <div class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Date added</div>
-    <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" data-range="24h">
+    <div class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date added</div>
+    <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800" data-range="24h">
       <span>Last 24 Hours</span>
       <span class="hidden text-brand-600" data-check="24h"><i class="ph ph-check text-base"></i></span>
     </button>
-    <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" data-range="7d">
+    <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800" data-range="7d">
       <span>Last 7 Days</span>
       <span class="hidden text-brand-600" data-check="7d"><i class="ph ph-check text-base"></i></span>
     </button>
-    <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" data-range="30d">
+    <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800" data-range="30d">
       <span>Last 30 Days</span>
       <span class="hidden text-brand-600" data-check="30d"><i class="ph ph-check text-base"></i></span>
     </button>
-    <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" data-range="all">
+    <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800" data-range="all">
       <span>All time</span>
       <span class="hidden text-brand-600" data-check="all"><i class="ph ph-check text-base"></i></span>
     </button>
@@ -403,11 +585,11 @@ function ensureGlobalActionsMenu() {
   const menu = document.createElement("div");
   menu.id = "globalActionsMenu";
   menu.className =
-    "fixed z-[80] hidden w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg";
+    "fixed z-[80] hidden w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900";
   menu.innerHTML = `
     <button
       type="button"
-      class="flex w-full items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+      class="flex w-full items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
       data-action="remove-doc"
       role="menuitem"
     >
@@ -571,6 +753,12 @@ async function uploadFileFromPicker(file, { statusElId, closeOnSuccess } = {}) {
   const btn = $("uploadBtn");
   if (btn) btn.dataset.label = btn.dataset.label || "Upload & Index";
 
+  addNotification({
+    type: "progress",
+    title: "File processing",
+    message: `Uploading “${file.name}”…`,
+  });
+
   setProcessing("Uploading", "Indexing in progress…");
   setLoading(btn, true);
   if (statusEl) safeText(statusEl, "Uploading and indexing…");
@@ -600,6 +788,7 @@ async function uploadFileFromPicker(file, { statusElId, closeOnSuccess } = {}) {
 
   try {
     // Simulate progress while the backend is indexing.
+    const milestones = new Set([25, 50, 75]);
     const progressTimer = window.setInterval(() => {
       const current = loadDocs();
       const next = current.map((d) => {
@@ -612,6 +801,20 @@ async function uploadFileFromPicker(file, { statusElId, closeOnSuccess } = {}) {
       });
       saveDocs(next);
       renderDocsTable(getActiveTab());
+
+      // Notify on coarse milestones so we don't spam.
+      const me = next.find((d) => d.id === docId);
+      const pct = Math.round(Number(me?.progress ?? 0));
+      for (const m of [...milestones]) {
+        if (pct >= m) {
+          milestones.delete(m);
+          addNotification({
+            type: "progress",
+            title: "File processing",
+            message: `Vectorizing “${file.name}”… ${m}%`,
+          });
+        }
+      }
     }, 650);
 
     const form = new FormData();
@@ -641,6 +844,13 @@ async function uploadFileFromPicker(file, { statusElId, closeOnSuccess } = {}) {
         `Indexed ${data.chunks_added} chunks (${String(data.filetype || type).toUpperCase()}).`
       );
     }
+
+    addNotification({
+      type: "success",
+      title: "File uploaded",
+      message: `“${file.name}” uploaded successfully (${data.chunks_added} chunks).`,
+    });
+
     setProcessing("Done", "No active jobs");
     await refreshHealth();
     updateCards();
@@ -663,6 +873,11 @@ async function uploadFileFromPicker(file, { statusElId, closeOnSuccess } = {}) {
     renderDocsTable(getActiveTab());
 
     if (statusEl) safeText(statusEl, `Upload failed: ${e.message}`);
+    addNotification({
+      type: "error",
+      title: "File upload failed",
+      message: `“${file.name}” failed: ${e.message}`,
+    });
     setProcessing("Error", "No active jobs");
   } finally {
     setLoading(btn, false);
@@ -681,7 +896,7 @@ async function ask() {
   setProcessing("Retrieving", "Running multi-agent pipeline…");
 
   try {
-    const topK = Number($("topK")?.value || 3);
+    const topK = Number($("topK")?.value || loadDefaultTopK());
     const res = await fetch("/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -776,6 +991,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   ensureGlobalActionsMenu();
   ensureGlobalFilterMenu();
   applyAuthUI();
+  applyThemeFromStorage();
+  applyDefaultTopK();
   updateCards();
   renderSearchOptions();
   setSearchClearVisible();
@@ -819,6 +1036,27 @@ window.addEventListener("DOMContentLoaded", async () => {
     await uploadFileFromPicker(f, { closeOnSuccess: false });
     e.target.value = "";
   });
+
+  // Notifications UI
+  $("notificationsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation?.();
+    toggleNotificationsMenu();
+  });
+  $("notificationsClose")?.addEventListener("click", closeNotificationsMenu);
+  $("notificationsMarkRead")?.addEventListener("click", () => markAllNotificationsRead());
+  $("notificationsList")?.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.('button[data-action="delete-notification"]');
+    if (!btn) return;
+    deleteNotificationById(btn.dataset.id);
+  });
+  document.addEventListener("click", (e) => {
+    const inside = e.target?.closest?.("#notificationsMenu") || e.target?.closest?.("#notificationsBtn");
+    if (!inside) closeNotificationsMenu();
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeNotificationsMenu();
+  });
+  renderNotificationsUI();
 
   $("composerDocsBtn")?.addEventListener("click", () => {
     const docs = document.getElementById("docsTableBody");
@@ -875,6 +1113,16 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   window.addEventListener("storage", (e) => {
     if (e.key === AUTH_KEY || e.key === PROFILE_KEY) applyAuthUI();
+    if (e.key === THEME_KEY) applyThemeFromStorage();
+    if (e.key === TOPK_KEY) applyDefaultTopK();
+  });
+  // Same-tab updates (Profile -> Home) won't trigger `storage`, so refresh on focus/visibility.
+  window.addEventListener("focus", () => applyDefaultTopK(true));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) applyDefaultTopK(true);
+  });
+  window.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", () => {
+    if ((localStorage.getItem(THEME_KEY) || "system") === "system") applyThemeFromStorage();
   });
 
   await refreshHealth();

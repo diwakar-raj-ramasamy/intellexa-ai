@@ -196,6 +196,25 @@ async function handleRegister(e) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  // Live theme updates (Light/Dark/System)
+  try {
+    const KEY = "intellexa_theme_v1";
+    const apply = () => {
+      const c = localStorage.getItem(KEY) || "system";
+      const dark =
+        c === "dark" ||
+        (c === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.classList.toggle("dark", dark);
+    };
+    apply();
+    window.addEventListener("storage", (e) => {
+      if (e.key === KEY) apply();
+    });
+    window.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", () => {
+      if ((localStorage.getItem(KEY) || "system") === "system") apply();
+    });
+  } catch {}
+
   setMode("login");
 
   $("loginTab")?.addEventListener("click", () => setMode("login"));
